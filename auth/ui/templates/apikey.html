@@ -1,0 +1,36 @@
+{{define "apikey.html"}}
+{{template "layout" .}}
+{{end}}
+
+{{define "content"}}
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">api key configuration</div>
+        <div class="card-status">
+            <span class="status-dot yellow"></span>
+            <span style="color: hsl(var(--smui-yellow));">pending</span>
+        </div>
+    </div>
+    <div class="card-content">
+        {{if .ProviderDescription}}
+        <p class="intro-text" style="margin-bottom: 1.5rem;">
+            {{.ProviderDescription}}
+        </p>
+        {{else}}
+        <p class="intro-text">
+            This server requires an API key to communicate with {{.ProviderName}} APIs. Please enter your API key below:
+        </p>
+        {{end}}
+
+        <form action="/authorize/{{.ProviderName}}" method="POST">
+            <span class="section-title">API Key</span>
+            
+            <div style="margin-bottom: 1.5rem;">
+                <input type="password" name="api_key" placeholder="Enter {{.ProviderName}} API key..." required style="width: 100%; padding: 0.75rem 1rem; font-family: var(--font-mono); font-size: 15px; background-color: rgba(0, 0, 0, 0.1); border: 1px solid var(--border); color: var(--foreground); outline: none;">
+            </div>
+
+            <button type="submit" class="btn btn-primary">save api key</button>
+        </form>
+    </div>
+</div>
+{{end}}

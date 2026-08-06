@@ -1,0 +1,90 @@
+{{define "status.html"}}
+{{template "layout" .}}
+{{end}}
+
+{{define "content"}}
+<div class="card" style="margin-bottom: 1.5rem;">
+    <div class="card-header">
+        <div class="card-title">session active</div>
+        <div class="card-status">
+            <span class="status-dot green"></span>
+            <span style="color: hsl(var(--smui-green));">verified</span>
+        </div>
+    </div>
+    <div class="card-content">
+        <div class="alert alert-success">
+            <div class="alert-content">
+                <div class="alert-title">authentication nominal</div>
+                <div class="alert-description">
+                    Logged in successfully as <strong>{{.Email}}</strong>.<br>
+                    Session ID: <span style="font-size: 12px; color: var(--muted-foreground);">{{.SessionID}}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 1.5rem;">
+    <div class="card-header">
+        <div class="card-title">hosted a2a agents</div>
+        <div class="card-status">
+            <span class="status-dot green"></span>
+            <span style="color: hsl(var(--smui-green));">{{len .Agents}} active</span>
+        </div>
+    </div>
+    <div class="card-content">
+        <p class="intro-text">
+            The following A2A agents are currently running and available on this server:
+        </p>
+        <div class="scopes-list">
+            {{range .Agents}}
+            <div class="scope-item" style="display: flex; align-items: flex-start; justify-content: space-between;">
+                <div class="scope-details">
+                    <div style="display: flex; align-items: center;">
+                        <span class="scope-name">{{.Name}}</span>
+                        <span class="badge badge-enabled">online</span>
+                    </div>
+                    <div class="scope-desc">{{.Description}}</div>
+                </div>
+                {{if len .SupportedInterfaces}}
+                <a href="{{(index .SupportedInterfaces 0).URL}}/.well-known/agent-card.json" target="_blank" style="color: var(--primary); font-size: 13px; font-weight: 600; text-transform: uppercase; text-decoration: none; margin-top: 0.25rem;">agent card ↗</a>
+                {{end}}
+            </div>
+            {{end}}
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">delegated authority providers</div>
+        <div class="card-status">
+            <span class="status-dot purple"></span>
+            <span style="color: hsl(var(--smui-purple));">{{len .Providers}} available</span>
+        </div>
+    </div>
+    <div class="card-content">
+        <p class="intro-text">
+            Choose a provider below to allow agent tools to act on your behalf:
+        </p>
+        <div class="scopes-list">
+            {{range .Providers}}
+            <a href="/authorize/{{.Name}}" class="scope-item" style="text-decoration: none; display: flex; align-items: center; justify-content: space-between;">
+                <div class="scope-details">
+                    <div style="display: flex; align-items: center;">
+                        <span class="scope-name">{{.Name}}</span>
+                        <span class="badge badge-type">{{.Type}}</span>
+                        {{if .Enabled}}
+                        <span class="badge badge-enabled">enabled</span>
+                        {{else}}
+                        <span class="badge badge-pending">pending</span>
+                        {{end}}
+                    </div>
+                </div>
+                <span style="color: var(--primary); font-size: 14px; font-weight: 600; text-transform: uppercase;">configure →</span>
+            </a>
+            {{end}}
+        </div>
+    </div>
+</div>
+{{end}}

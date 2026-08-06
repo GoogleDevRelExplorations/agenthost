@@ -1,0 +1,47 @@
+{{define "oauth2.html"}}
+{{template "layout" .}}
+{{end}}
+
+{{define "content"}}
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">permission scope selection</div>
+        <div class="card-status">
+            <span class="status-dot yellow"></span>
+            <span style="color: hsl(var(--smui-yellow));">pending</span>
+        </div>
+    </div>
+    <div class="card-content">
+        {{if .ProviderDescription}}
+        <p class="intro-text" style="margin-bottom: 1.5rem;">
+            {{.ProviderDescription}}
+        </p>
+        {{else}}
+        <p class="intro-text">
+            This server requires access tokens to communicate with {{.ProviderName}} APIs. Select which permissions you want to grant:
+        </p>
+        {{end}}
+
+        <form action="/authorize/{{.ProviderName}}" method="POST">
+            <span class="section-title">permissions</span>
+            
+            <div class="scopes-list">
+                {{range .Scopes}}
+                <div class="scope-item{{if .Default}} selected{{end}}" onclick="toggleSelect(this)">
+                    <div class="checkbox-box">
+                        <div class="checkbox-inner"></div>
+                    </div>
+                    <input type="checkbox" name="scopes" value="{{.Value}}" class="hidden-checkbox"{{if .Default}} checked{{end}}>
+                    <div class="scope-details">
+                        <div class="scope-name">{{.Name}}</div>
+                        <div class="scope-desc">{{.Description}}</div>
+                    </div>
+                </div>
+                {{end}}
+            </div>
+
+            <button type="submit" class="btn btn-primary">authorize selected scopes</button>
+        </form>
+    </div>
+</div>
+{{end}}

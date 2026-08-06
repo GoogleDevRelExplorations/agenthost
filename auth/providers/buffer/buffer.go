@@ -1,0 +1,35 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package buffer
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/GoogleDevRelExplorations/agenthost/auth"
+	"github.com/GoogleDevRelExplorations/agenthost/auth/registry"
+)
+
+func init() {
+	registry.RegisterProvider(registry.Provider{
+		Name:        "buffer",
+		Type:        registry.AuthTypeAPIKey,
+		Description: "For social media tools at http://buffer.com. see https://developers.buffer.com/guides/authentication.html to create an API key.",
+		HTTPClient: func(ctx context.Context, cred []byte) (*http.Client, error) {
+			apiKey := string(cred)
+			return auth.NewAuthClient(ctx, "Authorization", "Bearer "+apiKey), nil
+		},
+	})
+}

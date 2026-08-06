@@ -1,0 +1,414 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{if .PageTitle}}{{.PageTitle}}{{else}}a2a-server // authorization{{end}}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Polar Night (Dark mode) by default */
+            --background: #1a1e24;
+            --foreground: #d8dee9;
+            --card: #21262e;
+            --card-foreground: #d8dee9;
+            --primary: #88c0d0;
+            --primary-foreground: #1a1e24;
+            --muted: #282e37;
+            --muted-foreground: #8e99a8;
+            --border: #3b4252;
+            --border-hover: #4c566a;
+            --destructive: #d4737c;
+            --destructive-foreground: #1a1e24;
+
+            /* HSL triplets for extended colors */
+            --smui-frost-1: 179 25% 65%;   /* #8fbcbb */
+            --smui-frost-2: 193 44% 67%;   /* #88c0d0 */
+            --smui-frost-3: 210 29% 63%;   /* #81a1c1 */
+            --smui-frost-4: 213 32% 44%;   /* #4c6d94 */
+            --smui-green: 92 28% 65%;      /* #a3be8c */
+            --smui-yellow: 40 71% 73%;     /* #ebcb8b */
+            --smui-orange: 14 51% 63%;     /* #d08770 */
+            --smui-red: 354 54% 64%;       /* #d4737c */
+            --smui-purple: 311 20% 63%;    /* #b48ead */
+            
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                --background: #eceff4;
+                --foreground: #2e3440;
+                --card: #e5e9f0;
+                --card-foreground: #2e3440;
+                --primary: #4c6d94;
+                --primary-foreground: #eceff4;
+                --muted: #d8dee9;
+                --muted-foreground: #48505c;
+                --border: #c9cfda;
+                --border-hover: #abb3c2;
+                --destructive: #a3303d;
+                --destructive-foreground: #eceff4;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            border-radius: 0 !important; /* Force zero radius globally */
+        }
+
+        body {
+            font-family: var(--font-mono);
+            background-color: var(--background);
+            color: var(--foreground);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+        }
+
+        /* Top Navigation Bar */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3rem;
+            background-color: var(--card);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 1.5rem;
+            z-index: 10;
+        }
+
+        .navbar-brand {
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--foreground);
+        }
+
+        .container {
+            width: 100%;
+            max-width: 540px;
+            margin-top: 3rem; /* Leave space for navbar */
+        }
+
+        /* SMUI Card Layout */
+        .card {
+            background-color: var(--card);
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.65rem 0.85rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: var(--muted-foreground);
+        }
+
+        .card-status {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50% !important; /* Status dots are allowed to be rounded */
+        }
+
+        .status-dot.green { background-color: hsl(var(--smui-green)); }
+        .status-dot.yellow { background-color: hsl(var(--smui-yellow)); }
+        .status-dot.red { background-color: hsl(var(--smui-red)); }
+        .status-dot.purple { background-color: hsl(var(--smui-purple)); }
+
+        .card-content {
+            padding: 1.25rem;
+        }
+
+        .intro-text {
+            font-size: 16px;
+            line-height: 1.6;
+            color: var(--muted-foreground);
+            margin-bottom: 1.25rem;
+        }
+
+        /* Scopes List */
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: hsl(var(--smui-frost-2));
+            margin-bottom: 0.75rem;
+            display: block;
+        }
+
+        .scopes-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .scope-item {
+            display: flex;
+            align-items: flex-start;
+            padding: 0.85rem 1rem;
+            background-color: rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+
+        .scope-item:hover {
+            border-color: var(--border-hover);
+            background-color: rgba(0, 0, 0, 0.15);
+        }
+
+        .scope-item.selected {
+            border-color: var(--primary);
+            background-color: rgba(136, 192, 208, 0.04);
+        }
+
+        /* Checkbox Container */
+        .checkbox-box {
+            width: 16px;
+            height: 16px;
+            border: 1px solid var(--border);
+            margin-top: 2px;
+            margin-right: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: var(--background);
+            transition: all 0.15s ease;
+            flex-shrink: 0;
+        }
+
+        .scope-item:hover .checkbox-box {
+            border-color: var(--border-hover);
+        }
+
+        .scope-item.selected .checkbox-box {
+            border-color: var(--primary);
+        }
+
+        .checkbox-inner {
+            width: 8px;
+            height: 8px;
+            background-color: var(--primary);
+            display: none;
+        }
+
+        .scope-item.selected .checkbox-inner {
+            display: block;
+        }
+
+        .hidden-checkbox {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .scope-details {
+            flex-grow: 1;
+        }
+
+        .scope-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--foreground);
+        }
+
+        .scope-desc {
+            font-size: 14px;
+            color: var(--muted-foreground);
+            margin-top: 0.25rem;
+            line-height: 1.4;
+        }
+
+        /* Button Styling */
+        .btn {
+            font-family: var(--font-mono);
+            font-size: 15px;
+            font-weight: 500;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            padding: 0.75rem 1.25rem;
+            border: 1px solid transparent;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: var(--primary-foreground);
+        }
+
+        .btn-primary:hover {
+            background-color: hsl(var(--smui-frost-3));
+        }
+
+        .btn-secondary {
+            background-color: transparent;
+            border: 1px solid var(--border);
+            color: var(--muted-foreground);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--border-hover);
+            color: var(--foreground);
+            background-color: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Alerts */
+        .alert {
+            border: 1px solid var(--border);
+            padding: 0.85rem;
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-start;
+            margin-bottom: 1.25rem;
+        }
+
+        .alert-icon {
+            width: 16px;
+            height: 16px;
+            margin-top: 1px;
+            flex-shrink: 0;
+        }
+
+        .alert-content {
+            flex-grow: 1;
+        }
+
+        .alert-title {
+            font-size: 15px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .alert-description {
+            font-size: 14px;
+            line-height: 1.5;
+            color: var(--muted-foreground);
+            margin-top: 0.25rem;
+        }
+
+        /* Custom Alert Theme Variants */
+        .alert.alert-success {
+            border-color: rgba(163, 190, 140, 0.35);
+            background-color: rgba(163, 190, 140, 0.05);
+        }
+        .alert-success .alert-title, .alert-success .alert-icon {
+            color: hsl(var(--smui-green));
+        }
+
+        .alert.alert-destructive {
+            border-color: rgba(212, 115, 124, 0.35);
+            background-color: rgba(212, 115, 124, 0.05);
+        }
+        .alert-destructive .alert-title, .alert-destructive .alert-icon {
+            color: hsl(var(--smui-red));
+        }
+
+        /* Status Badges */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.15rem 0.5rem;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border: 1px solid var(--border);
+            margin-left: 0.5rem;
+        }
+        .badge-enabled {
+            border-color: rgba(163, 190, 140, 0.4);
+            background-color: rgba(163, 190, 140, 0.1);
+            color: hsl(var(--smui-green));
+        }
+        .badge-pending {
+            border-color: rgba(235, 203, 139, 0.4);
+            background-color: rgba(235, 203, 139, 0.1);
+            color: hsl(var(--smui-yellow));
+        }
+        .badge-type {
+            border-color: rgba(136, 192, 208, 0.4);
+            background-color: rgba(136, 192, 208, 0.1);
+            color: hsl(var(--smui-frost-2));
+        }
+
+        /* Footer */
+        .footer {
+            margin-top: 1.25rem;
+            text-align: center;
+            font-size: 13px;
+            color: var(--muted-foreground);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="navbar-brand">{{if .PageTitle}}{{.PageTitle}}{{else}}a2a-server // authorization{{end}}</div>
+    </nav>
+    <div class="container">
+        {{template "content" .}}
+        <div class="footer">
+            secured locally // credentials are never provided directly to agents // redirects to secure consent console
+        </div>
+    </div>
+    <script>
+        function toggleSelect(element) {
+            const checkbox = element.querySelector('.hidden-checkbox');
+            if (checkbox) {
+                checkbox.checked = !checkbox.checked;
+                if (checkbox.checked) {
+                    element.classList.add('selected');
+                } else {
+                    element.classList.remove('selected');
+                }
+            }
+        }
+    </script>
+</body>
+</html>
+{{end}}
