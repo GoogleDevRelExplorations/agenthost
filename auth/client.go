@@ -15,31 +15,46 @@
 package auth
 
 import (
-	"context"
+	"fmt"
 	"net/http"
+
+	"github.com/GoogleDevRelExplorations/agenthost/auth/registry"
 )
 
 // AuthRoundTripper injects an authentication header into outgoing requests.
 type AuthRoundTripper struct {
 	http.RoundTripper
-	HeaderName  string
-	HeaderValue string
+	AuthProvider string
 }
 
 // RoundTrip clones the request, injects the header, and delegates to the underlying transport.
 func (rt *AuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	provider, ok := DelegatedAuthProviderFrom(req.Context())
+	if !ok || provider == nil {
+		return nil, fmt.Errorf("authentication error: delegated auth provider not found in context")
+	}
+	if rt.AuthProvider == "" {
+		return nil, fmt.Errorf("auth provider must be specified")
+	}
+	tok, err := provider.GetCredential(req.Context(), rt.AuthProvider)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get credential: %v", err)
+	}
 	clone := req.Clone(req.Context())
-	clone.Header.Set(rt.HeaderName, rt.HeaderValue)
+	clone.Header.Set("Authorization", "Bearer "+string(tok))
 	return rt.RoundTripper.RoundTrip(clone)
 }
 
-// NewAuthClient returns an *http.Client configured with an AuthRoundTripper.
-func NewAuthClient(ctx context.Context, headerName, headerValue string) *http.Client {
+// NewClient returns an *http.Client configured with an AuthRoundTripper.
+func NewClient(provider string) (*http.Client, error) {
+	_, ok := registry.GetProvider(provider)
+	if !ok {
+		return nil, fmt.Errorf("unknown auth provider: %s", provider)
+	}
 	return &http.Client{
 		Transport: &AuthRoundTripper{
-			HeaderName:   headerName,
-			HeaderValue:  headerValue,
+			AuthProvider: provider,
 			RoundTripper: http.DefaultTransport,
 		},
-	}
+	}, nil
 }

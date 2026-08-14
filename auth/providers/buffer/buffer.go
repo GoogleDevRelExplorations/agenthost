@@ -15,10 +15,6 @@
 package buffer
 
 import (
-	"context"
-	"net/http"
-
-	"github.com/GoogleDevRelExplorations/agenthost/auth"
 	"github.com/GoogleDevRelExplorations/agenthost/auth/registry"
 )
 
@@ -27,9 +23,5 @@ func init() {
 		Name:        "buffer",
 		Type:        registry.AuthTypeAPIKey,
 		Description: "For social media tools at http://buffer.com. see https://developers.buffer.com/guides/authentication.html to create an API key.",
-		HTTPClient: func(ctx context.Context, cred []byte) (*http.Client, error) {
-			apiKey := string(cred)
-			return auth.NewAuthClient(ctx, "Authorization", "Bearer "+apiKey), nil
-		},
 	})
 }

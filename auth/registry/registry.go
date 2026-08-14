@@ -1,8 +1,6 @@
 package registry
 
 import (
-	"context"
-	"net/http"
 	"sync"
 
 	"golang.org/x/oauth2"
@@ -30,9 +28,6 @@ type Provider struct {
 	ClientSecret string          `json:"client_secret" yaml:"client_secret"`
 	Endpoint     oauth2.Endpoint `json:"-" yaml:"-"`
 	Scopes       []Scope         `json:"scopes" yaml:"scopes"`
-
-	// HTTPClient converts opaque credential bytes into an authenticated http.Client
-	HTTPClient func(ctx context.Context, cred []byte) (*http.Client, error) `json:"-" yaml:"-"`
 }
 
 var (
@@ -115,4 +110,3 @@ func ListProviders() []Provider {
 	}
 	return list
 }
-
