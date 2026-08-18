@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"net/http"
 	"sync"
 )
 
@@ -88,30 +87,6 @@ func (s *InMemoryStore) DelegatedProvider(ctx context.Context, email string) *De
 	}
 }
 
-// GetClient returns an authenticated *http.Client for the given user email and the default "google" provider.
-func GetClient(ctx context.Context, store CredentialStore, email string) (*http.Client, error) {
-	return GetClientForProvider(ctx, store, email, "google")
-}
-
-// GetClientForProvider returns an authenticated *http.Client for the given user email and target provider name.
-func GetClientForProvider(ctx context.Context, store CredentialStore, email string, providerName string) (*http.Client, error) {
-	provider, ok := GetProvider(providerName)
-	if !ok {
-		return nil, fmt.Errorf("provider '%s' not registered", providerName)
-	}
-
-	cred, err := store.GetCredential(ctx, email, providerName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve credential for provider %s: %w", providerName, err)
-	}
-
-	if provider.HTTPClient == nil {
-		return nil, fmt.Errorf("provider '%s' does not have an HTTPClient constructor configured", providerName)
-	}
-
-	return provider.HTTPClient(ctx, cred)
-}
-
 // DelegatedAuthProvider provides access to delegated credentials scoped to the authenticated user.
 type DelegatedAuthProvider struct {
 	credentials map[string][]byte
@@ -124,25 +99,6 @@ func (p *DelegatedAuthProvider) GetCredential(ctx context.Context, provider stri
 		return nil, fmt.Errorf("credential not found for provider %s", provider)
 	}
 	return cred, nil
-}
-
-// GetClient returns an authenticated *http.Client for the specified provider for the authenticated user.
-func (p *DelegatedAuthProvider) GetClient(ctx context.Context, providerName string) (*http.Client, error) {
-	provider, ok := GetProvider(providerName)
-	if !ok {
-		return nil, fmt.Errorf("provider '%s' not registered", providerName)
-	}
-
-	cred, err := p.GetCredential(ctx, providerName)
-	if err != nil {
-		return nil, err
-	}
-
-	if provider.HTTPClient == nil {
-		return nil, fmt.Errorf("provider '%s' does not have an HTTPClient constructor configured", providerName)
-	}
-
-	return provider.HTTPClient(ctx, cred)
 }
 
 // Providers returns the list of registered provider names that have delegated credentials.

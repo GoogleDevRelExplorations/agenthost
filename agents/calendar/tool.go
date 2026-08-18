@@ -19,8 +19,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
 	"google.golang.org/api/calendar/v3"
@@ -64,18 +64,13 @@ func NewReadCalendarTool() (tool.Tool, error) {
 
 // readCalendarHandler performs the core lookup logic, separated for easier unit testing.
 func readCalendarHandler(ctx context.Context, args ReadCalendarArgs) (ReadCalendarResult, error) {
-	provider, ok := auth.DelegatedAuthProviderFrom(ctx)
-	if !ok {
-		return ReadCalendarResult{}, fmt.Errorf("authentication error: delegated auth provider not found in context")
-	}
-
 	callCtx, ok := a2asrv.CallContextFrom(ctx)
 	if !ok || callCtx.User == nil || callCtx.User.Name == "" {
 		return ReadCalendarResult{}, fmt.Errorf("authentication error: user is not authenticated")
 	}
 	userEmail := callCtx.User.Name
 
-	client, err := provider.GetClient(ctx, "google")
+	client, err := auth.NewClient("google")
 	if err != nil {
 		return ReadCalendarResult{}, fmt.Errorf("failed to retrieve authenticated HTTP client: %w", err)
 	}

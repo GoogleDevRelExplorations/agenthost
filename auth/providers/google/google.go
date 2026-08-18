@@ -1,14 +1,7 @@
 package google
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-
-	"github.com/GoogleDevRelExplorations/agenthost/auth"
 	"github.com/GoogleDevRelExplorations/agenthost/auth/registry"
-	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	analyticsdata "google.golang.org/api/analyticsdata/v1alpha"
 	"google.golang.org/api/sheets/v4"
@@ -56,13 +49,6 @@ func init() {
 				Description: "Full management access to your Google Cloud Platform projects.",
 				Default:     false,
 			},
-		},
-		HTTPClient: func(ctx context.Context, cred []byte) (*http.Client, error) {
-			var tok oauth2.Token
-			if err := json.Unmarshal(cred, &tok); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal oauth2 token: %w", err)
-			}
-			return auth.NewAuthClient(ctx, "Authorization", "Bearer "+tok.AccessToken), nil
 		},
 	})
 }
