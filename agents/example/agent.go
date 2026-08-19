@@ -21,8 +21,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/session"

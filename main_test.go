@@ -23,12 +23,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
-	"strings"
 
-	"github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/GoogleDevRelExplorations/agenthost/a2ahost"
 	"github.com/GoogleDevRelExplorations/agenthost/agents/example"
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
@@ -36,6 +34,8 @@ import (
 	_ "github.com/GoogleDevRelExplorations/agenthost/auth/providers/github"
 	_ "github.com/GoogleDevRelExplorations/agenthost/auth/providers/google"
 	authsession "github.com/GoogleDevRelExplorations/agenthost/auth/session"
+	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"golang.org/x/oauth2"
 )
 
@@ -287,4 +287,3 @@ func TestMultiUserCredentialStore(t *testing.T) {
 		t.Errorf("Expected token-user-2, got %q", gotToken2.AccessToken)
 	}
 }
-

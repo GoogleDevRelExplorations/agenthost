@@ -18,10 +18,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
 	authsession "github.com/GoogleDevRelExplorations/agenthost/auth/session"
+	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/server/adka2a/v2"

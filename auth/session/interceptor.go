@@ -18,8 +18,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/spf13/viper"
 	"google.golang.org/api/idtoken"
 )
