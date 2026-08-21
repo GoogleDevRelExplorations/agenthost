@@ -22,11 +22,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/google/uuid"
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
 	"github.com/GoogleDevRelExplorations/agenthost/auth/registry"
 	"github.com/GoogleDevRelExplorations/agenthost/auth/ui"
+	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/google/uuid"
 	"github.com/spf13/viper"
 	"golang.org/x/oauth2"
 	"google.golang.org/api/idtoken"

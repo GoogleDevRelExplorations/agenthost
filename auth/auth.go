@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"maps"
 	"sync"
+
+	"github.com/GoogleDevRelExplorations/agenthost/auth/registry"
 )
 
 // CredentialStore defines the interface for storing and retrieving opaque credentials.
@@ -82,32 +84,46 @@ func (s *InMemoryStore) GetCredentials(ctx context.Context, email string) map[st
 
 // DelegatedProvider returns a user-scoped DelegatedAuthProvider.
 func (s *InMemoryStore) DelegatedProvider(ctx context.Context, email string) *DelegatedAuthProvider {
-	return &DelegatedAuthProvider{
-		credentials: s.GetCredentials(ctx, email),
-	}
+	return NewDelegatedAuthProvider(s, email)
 }
 
 // DelegatedAuthProvider provides access to delegated credentials scoped to the authenticated user.
 type DelegatedAuthProvider struct {
-	credentials map[string][]byte
+	store CredentialStore
+	email string
+}
+
+// NewDelegatedAuthProvider creates a new DelegatedAuthProvider scoped to a user email and backed by a CredentialStore.
+func NewDelegatedAuthProvider(store CredentialStore, email string) *DelegatedAuthProvider {
+	return &DelegatedAuthProvider{
+		store: store,
+		email: email,
+	}
 }
 
 // GetCredential retrieves the delegated credential for the specified provider for the authenticated user.
 func (p *DelegatedAuthProvider) GetCredential(ctx context.Context, provider string) ([]byte, error) {
-	cred, ok := p.credentials[provider]
-	if !ok {
-		return nil, fmt.Errorf("credential not found for provider %s", provider)
+	if p == nil || p.store == nil {
+		return nil, fmt.Errorf("credential store not configured")
 	}
-	return cred, nil
+	return p.store.GetCredential(ctx, p.email, provider)
 }
 
-// Providers returns the list of registered provider names that have delegated credentials.
+// Providers returns the list of registered provider names that have delegated credentials or are registered.
 func (p *DelegatedAuthProvider) Providers() []string {
-	var keys []string
-	for k := range p.credentials {
-		keys = append(keys, k)
+	var names []string
+	for _, prov := range registry.ListProviders() {
+		names = append(names, prov.Name)
 	}
-	return keys
+	return names
+}
+
+// Email returns the authenticated user's email.
+func (p *DelegatedAuthProvider) Email() string {
+	if p == nil {
+		return ""
+	}
+	return p.email
 }
 
 type contextKey struct{}
