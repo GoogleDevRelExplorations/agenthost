@@ -35,6 +35,7 @@ import (
 	_ "github.com/GoogleDevRelExplorations/agenthost/auth/providers/google"
 	authsession "github.com/GoogleDevRelExplorations/agenthost/auth/session"
 	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"golang.org/x/oauth2"
 )
@@ -120,34 +121,26 @@ func TestServerA2A(t *testing.T) {
 		t.Errorf("Expected agent card name %q, got %q", exampleAgent.Name(), card.Name)
 	}
 
-	// 6. Test Send Message A2A endpoint
-	reqBody := a2a.SendMessageRequest{
-		Message: a2a.NewMessage(
-			a2a.MessageRoleUser,
-			a2a.NewTextPart("Test Hello"),
-		),
-	}
-	reqJSON, _ := json.Marshal(reqBody)
-
-	sendResp, err := http.Post(addr+"/message:send", "application/json", bytes.NewReader(reqJSON))
+	// 6. Test Send Message A2A endpoint using JSON-RPC client
+	client, err := a2aclient.NewFromCard(ctx, &card)
 	if err != nil {
-		t.Fatalf("Failed to post message: %v", err)
-	}
-	defer sendResp.Body.Close()
-
-	if sendResp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(sendResp.Body)
-		t.Fatalf("Expected status code 200, got %d. Response: %s", sendResp.StatusCode, string(bodyBytes))
+		t.Fatalf("Failed to create a2a client: %v", err)
 	}
 
-	var streamResp a2a.StreamResponse
-	if err := json.NewDecoder(sendResp.Body).Decode(&streamResp); err != nil {
-		t.Fatalf("Failed to decode send message response: %v", err)
+	msg := a2a.NewMessage(
+		a2a.MessageRoleUser,
+		a2a.NewTextPart("Test Hello"),
+	)
+	sendResult, err := client.SendMessage(ctx, &a2a.SendMessageRequest{
+		Message: msg,
+	})
+	if err != nil {
+		t.Fatalf("Failed to send message: %v", err)
 	}
 
-	task, ok := streamResp.Event.(*a2a.Task)
+	task, ok := sendResult.(*a2a.Task)
 	if !ok {
-		t.Fatalf("Expected event to be a Task, got %T", streamResp.Event)
+		t.Fatalf("Expected event to be a *a2a.Task, got %T", sendResult)
 	}
 
 	t.Logf("Task ID: %s, Status: %s", task.ID, task.Status.State)
@@ -180,6 +173,49 @@ func TestServerA2A(t *testing.T) {
 	expectedPrefix := `Hello! You said: "Test Hello"`
 	if !strings.HasPrefix(part.Text(), expectedPrefix) {
 		t.Errorf("Expected response text to start with %q, got %q", expectedPrefix, part.Text())
+	}
+
+	// 7. Test Send Message via raw JSON-RPC 2.0 HTTP POST request
+	jsonrpcReq := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      "test-jsonrpc-1",
+		"method":  "SendMessage",
+		"params": a2a.SendMessageRequest{
+			Message: a2a.NewMessage(
+				a2a.MessageRoleUser,
+				a2a.NewTextPart("Test JSON-RPC Raw"),
+			),
+		},
+	}
+	rawReqBytes, _ := json.Marshal(jsonrpcReq)
+	httpResp, err := http.Post(addr+"/", "application/json", bytes.NewReader(rawReqBytes))
+	if err != nil {
+		t.Fatalf("Failed to post JSON-RPC request: %v", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(httpResp.Body)
+		t.Fatalf("Expected status code 200, got %d. Response: %s", httpResp.StatusCode, string(bodyBytes))
+	}
+
+	var jsonrpcResp struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      string          `json:"id"`
+		Result  json.RawMessage `json:"result"`
+		Error   any             `json:"error"`
+	}
+	if err := json.NewDecoder(httpResp.Body).Decode(&jsonrpcResp); err != nil {
+		t.Fatalf("Failed to decode JSON-RPC response: %v", err)
+	}
+	if jsonrpcResp.JSONRPC != "2.0" {
+		t.Errorf("Expected jsonrpc 2.0, got %q", jsonrpcResp.JSONRPC)
+	}
+	if jsonrpcResp.ID != "test-jsonrpc-1" {
+		t.Errorf("Expected id test-jsonrpc-1, got %q", jsonrpcResp.ID)
+	}
+	if jsonrpcResp.Error != nil {
+		t.Errorf("Unexpected JSON-RPC error: %v", jsonrpcResp.Error)
 	}
 }
 
