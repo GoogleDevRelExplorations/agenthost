@@ -51,7 +51,7 @@ func BuildAgentCard(ag agent.Agent, baseAddr string) *a2a.AgentCard {
 		Name:        ag.Name(),
 		Description: ag.Description(),
 		SupportedInterfaces: []*a2a.AgentInterface{
-			a2a.NewAgentInterface(baseAddr, a2a.TransportProtocolHTTPJSON),
+			a2a.NewAgentInterface(baseAddr, a2a.TransportProtocolJSONRPC),
 		},
 		DefaultInputModes:  []string{"text/plain"},
 		DefaultOutputModes: []string{"text/plain"},
@@ -66,10 +66,6 @@ func BuildAgentCard(ag agent.Agent, baseAddr string) *a2a.AgentCard {
 			a2a.SecuritySchemeName("google_oidc"): a2a.OpenIDConnectSecurityScheme{
 				OpenIDConnectURL: "https://accounts.google.com/.well-known/openid-configuration",
 				Description:      "Google OpenID Connect identity provider.",
-			},
-			a2a.SecuritySchemeName("session"): a2a.HTTPAuthSecurityScheme{
-				Scheme:      "session",
-				Description: "Session ID issued after logging in to this host",
 			},
 		},
 	}
@@ -97,15 +93,15 @@ func (h *Host) RegisterAgent(pathPrefix string, ag agent.Agent) {
 		a2asrv.WithCallInterceptors(authsession.NewAuthInterceptor(h.store)),
 	)
 
-	restHandler := a2asrv.NewRESTHandler(requestHandler)
+	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 
 	if pathPrefix == "/" || pathPrefix == "" {
-		h.mux.Handle("/", restHandler)
+		h.mux.Handle("/", jsonrpcHandler)
 		h.mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(card))
 		return
 	}
 
-	h.mux.Handle(pathPrefix+"/", http.StripPrefix(pathPrefix, restHandler))
+	h.mux.Handle(pathPrefix+"/", http.StripPrefix(pathPrefix, jsonrpcHandler))
 	h.mux.Handle(pathPrefix+a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(card))
 }
 
