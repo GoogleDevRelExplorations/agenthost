@@ -15,10 +15,12 @@
 package auth
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/GoogleDevRelExplorations/agenthost/auth/registry"
+	"golang.org/x/oauth2"
 )
 
 // AuthRoundTripper injects an authentication header into outgoing requests.
@@ -40,8 +42,15 @@ func (rt *AuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get credential: %v", err)
 	}
+
+	tokenStr := string(tok)
+	var oauthTok oauth2.Token
+	if err := json.Unmarshal(tok, &oauthTok); err == nil && oauthTok.AccessToken != "" {
+		tokenStr = oauthTok.AccessToken
+	}
+
 	clone := req.Clone(req.Context())
-	clone.Header.Set("Authorization", "Bearer "+string(tok))
+	clone.Header.Set("Authorization", "Bearer "+tokenStr)
 	return rt.RoundTripper.RoundTrip(clone)
 }
 
