@@ -30,6 +30,7 @@ import (
 	_ "github.com/GoogleDevRelExplorations/agenthost/auth/providers/buffer"
 	_ "github.com/GoogleDevRelExplorations/agenthost/auth/providers/github"
 	_ "github.com/GoogleDevRelExplorations/agenthost/auth/providers/google"
+	authhttp "github.com/GoogleDevRelExplorations/agenthost/auth/http"
 	authsession "github.com/GoogleDevRelExplorations/agenthost/auth/session"
 	"github.com/spf13/viper"
 )
@@ -99,8 +100,11 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Wrap mux with AuthMiddleware to extract session cookie and inject bearer tokens
-	handler := authsession.Middleware(sessionStore)(mux)
+	// Wrap mux with AuthMiddleware to extract session cookie, validate OIDC tokens, and inject DelegatedAuthProvider
+	handler := authhttp.Middleware(authhttp.Options{
+		SessionStore:    sessionStore,
+		CredentialStore: tokenStore,
+	})(mux)
 
 	// 5. Start HTTP server
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))

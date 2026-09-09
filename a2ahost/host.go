@@ -19,7 +19,7 @@ import (
 	"net/http"
 
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
-	authsession "github.com/GoogleDevRelExplorations/agenthost/auth/session"
+	autha2a "github.com/GoogleDevRelExplorations/agenthost/auth/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"google.golang.org/adk/agent"
@@ -90,7 +90,7 @@ func (h *Host) RegisterAgent(pathPrefix string, ag agent.Agent) {
 
 	requestHandler := a2asrv.NewHandler(
 		executor,
-		a2asrv.WithCallInterceptors(authsession.NewAuthInterceptor(h.store)),
+		a2asrv.WithCallInterceptors(autha2a.NewAuthInterceptor(h.store)),
 	)
 
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
