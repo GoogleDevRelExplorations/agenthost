@@ -45,16 +45,15 @@ func Middleware(opts Options) func(http.Handler) http.Handler {
 			ctx := r.Context()
 			token := extractBearerOrSession(r, opts.SessionStore)
 
-			if token != "" {
-				email, _, err := auth.ValidateIDToken(ctx, token, opts.Audience, opts.Validator)
-				if err == nil && email != "" {
-					if opts.CredentialStore != nil {
-						provider := opts.CredentialStore.DelegatedProvider(ctx, email)
-						ctx = auth.WithDelegatedAuthProvider(ctx, provider)
-					}
-				}
+			if token == "" {
+				http.Error(w, "Authentication required.", http.StatusUnauthorized)
 			}
-
+			email, _, err := auth.ValidateIDToken(ctx, token, opts.Audience, opts.Validator)
+			if err != nil || email != "" {
+				http.Error(w, "Invalid Auth token.", http.StatusUnauthorized)
+			}
+			provider := opts.CredentialStore.DelegatedProvider(ctx, email)
+			ctx = auth.WithDelegatedAuthProvider(ctx, provider)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

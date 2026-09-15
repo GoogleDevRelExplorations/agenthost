@@ -16,9 +16,11 @@ package a2a
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
+	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 )
 
@@ -39,7 +41,7 @@ func NewAuthInterceptor(store auth.CredentialStore) *AuthInterceptor {
 func (i *AuthInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, req *a2asrv.Request) (context.Context, any, error) {
 	token := i.extractToken(callCtx)
 	if token == "" {
-		return ctx, nil, nil
+		return ctx, nil, fmt.Errorf("Unauthenticated %w", a2a.ErrUnauthenticated)
 	}
 
 	email, claims, err := auth.ValidateIDToken(ctx, token, i.Audience, i.Validator)
