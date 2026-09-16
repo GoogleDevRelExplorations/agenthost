@@ -30,18 +30,20 @@ import (
 
 // Host manages the registration, routing, and Agent Card configuration for multiple A2A agents.
 type Host struct {
-	mux     *http.ServeMux
-	baseURL string
-	store   auth.CredentialStore
-	cards   []*a2a.AgentCard
+	mux          *http.ServeMux
+	baseURL      string
+	store        auth.CredentialStore
+	sessionStore auth.SessionStore
+	cards        []*a2a.AgentCard
 }
 
 // NewHost creates a new Host instance wrapping the provided ServeMux.
-func NewHost(mux *http.ServeMux, baseURL string, store auth.CredentialStore) *Host {
+func NewHost(mux *http.ServeMux, baseURL string, store auth.CredentialStore, sessionStore auth.SessionStore) *Host {
 	return &Host{
-		mux:     mux,
-		baseURL: baseURL,
-		store:   store,
+		mux:          mux,
+		baseURL:      baseURL,
+		store:        store,
+		sessionStore: sessionStore,
 	}
 }
 
@@ -90,7 +92,7 @@ func (h *Host) RegisterAgent(pathPrefix string, ag agent.Agent) {
 
 	requestHandler := a2asrv.NewHandler(
 		executor,
-		a2asrv.WithCallInterceptors(autha2a.NewAuthInterceptor(h.store)),
+		a2asrv.WithCallInterceptors(autha2a.NewAuthInterceptor(h.store, h.sessionStore)),
 	)
 
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)

@@ -16,44 +16,136 @@ package a2a
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
-	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/GoogleDevRelExplorations/agenthost/auth/providers"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"golang.org/x/oauth2"
 )
 
-// AuthInterceptor is an A2A CallInterceptor that extracts and validates OIDC ID tokens.
+// AuthInterceptor is an A2A CallInterceptor that extracts and validates auth tokens,
+// accepting both 'session' and 'bearer' schemes (session ID or OAuth access token).
 type AuthInterceptor struct {
-	Store     auth.CredentialStore
-	Audience  string
-	Validator auth.ValidatorFunc
+	Store        auth.CredentialStore
+	SessionStore auth.SessionStore
+	Audience     string
+	Validator    auth.ValidatorFunc
 }
 
 // NewAuthInterceptor creates a new A2A CallInterceptor.
-func NewAuthInterceptor(store auth.CredentialStore) *AuthInterceptor {
-	return &AuthInterceptor{Store: store}
+func NewAuthInterceptor(store auth.CredentialStore, sessionStore auth.SessionStore) *AuthInterceptor {
+	return &AuthInterceptor{
+		Store:        store,
+		SessionStore: sessionStore,
+	}
 }
 
-// Before intercepts incoming A2A requests, validates the ID token, sets the A2A User,
-// and injects the DelegatedAuthProvider into the Go context.
+// Before intercepts incoming A2A requests, validates the token (supporting 'session' and 'bearer'),
+// sets the A2A User, and injects the DelegatedAuthProvider into the Go context.
 func (i *AuthInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, req *a2asrv.Request) (context.Context, any, error) {
-	token := i.extractToken(callCtx)
+	scheme, token := i.extractToken(callCtx)
 	if token == "" {
-		return ctx, nil, fmt.Errorf("Unauthenticated %w", a2a.ErrUnauthenticated)
+		// If no token was provided in A2A params, check if context was already authenticated by HTTP middleware
+		if provider, ok := auth.DelegatedAuthProviderFrom(ctx); ok && provider != nil && provider.UserID() != "" {
+			callCtx.User = a2asrv.NewAuthenticatedUser(provider.UserID(), map[string]any{"user_id": provider.UserID()})
+		}
+		return ctx, nil, nil
 	}
 
-	email, claims, err := auth.ValidateIDToken(ctx, token, i.Audience, i.Validator)
-	if err != nil {
-		return ctx, nil, err
+	var userID string
+	var claims map[string]any
+
+	if scheme == "session" {
+		if i.SessionStore != nil {
+			if uid, err := i.SessionStore.GetUserID(ctx, token); err == nil && uid != "" {
+				userID = uid
+				claims = map[string]any{"user_id": userID}
+			}
+		}
+	} else if scheme == "bearer" {
+		// 1) Type 1: Session ID
+		if i.SessionStore != nil {
+			if uid, err := i.SessionStore.GetUserID(ctx, token); err == nil && uid != "" {
+				userID = uid
+				claims = map[string]any{"user_id": userID}
+			}
+		}
+
+		// 2) Type 2: OAuth access token
+		if userID == "" {
+			if i.Validator != nil {
+				email, c, err := auth.ValidateIDToken(ctx, token, i.Audience, i.Validator)
+				if err == nil && email != "" {
+					userID = email
+					claims = c
+					if i.Store != nil {
+						tokBytes, _ := json.Marshal(&oauth2.Token{
+							AccessToken: token,
+							TokenType:   "Bearer",
+						})
+						_ = i.Store.SetCredential(ctx, userID, "google", tokBytes)
+					}
+				}
+			}
+			if userID == "" {
+				tok := &oauth2.Token{AccessToken: token, TokenType: "Bearer"}
+				for _, p := range providers.ListSigninProviders() {
+					if uid, err := p.UserID(ctx, tok); err == nil && uid != "" {
+						userID = uid
+						claims = map[string]any{"user_id": uid, "provider": p.Name()}
+						if i.Store != nil {
+							tokBytes, _ := json.Marshal(tok)
+							_ = i.Store.SetCredential(ctx, userID, p.Name(), tokBytes)
+						}
+						break
+					}
+				}
+			}
+		}
+	} else {
+		// Bare token without scheme
+		if i.SessionStore != nil {
+			if uid, err := i.SessionStore.GetUserID(ctx, token); err == nil && uid != "" {
+				userID = uid
+				claims = map[string]any{"user_id": userID}
+			}
+		}
+		if userID == "" {
+			tok := &oauth2.Token{AccessToken: token, TokenType: "Bearer"}
+			for _, p := range providers.ListSigninProviders() {
+				if uid, err := p.UserID(ctx, tok); err == nil && uid != "" {
+					userID = uid
+					claims = map[string]any{"user_id": uid, "provider": p.Name()}
+					if i.Store != nil {
+						tokBytes, _ := json.Marshal(tok)
+						_ = i.Store.SetCredential(ctx, userID, p.Name(), tokBytes)
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// Fallback to existing context authentication if token resolution didn't succeed directly
+	if userID == "" {
+		if provider, ok := auth.DelegatedAuthProviderFrom(ctx); ok && provider != nil && provider.UserID() != "" {
+			userID = provider.UserID()
+			claims = map[string]any{"user_id": userID}
+		}
+	}
+
+	if userID == "" {
+		return ctx, nil, fmt.Errorf("invalid auth token: authentication failed")
 	}
 
 	// Populates the authenticated user identity on the A2A call context
-	callCtx.User = a2asrv.NewAuthenticatedUser(email, claims)
+	callCtx.User = a2asrv.NewAuthenticatedUser(userID, claims)
 
 	if i.Store != nil {
-		provider := i.Store.DelegatedProvider(ctx, email)
+		provider := i.Store.DelegatedProvider(ctx, userID)
 		ctx = auth.WithDelegatedAuthProvider(ctx, provider)
 	}
 
@@ -65,17 +157,22 @@ func (i *AuthInterceptor) After(ctx context.Context, callCtx *a2asrv.CallContext
 	return nil
 }
 
-func (i *AuthInterceptor) extractToken(callCtx *a2asrv.CallContext) string {
+func (i *AuthInterceptor) extractToken(callCtx *a2asrv.CallContext) (string, string) {
 	if callCtx.ServiceParams() == nil {
-		return ""
+		return "", ""
 	}
 
 	// ServiceParams().Get is case-insensitive
 	if vals, ok := callCtx.ServiceParams().Get("authorization"); ok && len(vals) > 0 {
-		authHeader := vals[0]
-		if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-			return strings.TrimSpace(authHeader[7:])
+		authHeader := strings.TrimSpace(vals[0])
+		lower := strings.ToLower(authHeader)
+		if strings.HasPrefix(lower, "bearer ") {
+			return "bearer", strings.TrimSpace(authHeader[7:])
 		}
+		if strings.HasPrefix(lower, "session ") {
+			return "session", strings.TrimSpace(authHeader[8:])
+		}
+		return "", authHeader
 	}
-	return ""
+	return "", ""
 }

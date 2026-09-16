@@ -23,34 +23,39 @@ import (
 	"time"
 
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
+	"github.com/GoogleDevRelExplorations/agenthost/auth/providers"
 	"github.com/GoogleDevRelExplorations/agenthost/auth/registry"
 	"github.com/GoogleDevRelExplorations/agenthost/auth/ui"
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
 	"github.com/spf13/viper"
 	"golang.org/x/oauth2"
-	"google.golang.org/api/idtoken"
 )
 
-// Handler manages OIDC direct user login, status dashboard, and callback token resolution.
+// Handler manages direct user login, status dashboard, and callback token resolution.
 type Handler struct {
-	store      Store
-	credStore  auth.CredentialStore
-	serverAddr string
-	listAgents func() []*a2a.AgentCard
+	store          SessionStore
+	credStore      auth.CredentialStore
+	serverAddr     string
+	signinProvider string
+	listAgents     func() []*a2a.AgentCard
 }
 
 // NewHandler creates a new Handler.
-func NewHandler(store Store, credStore auth.CredentialStore, serverAddr string, listAgents func() []*a2a.AgentCard) *Handler {
+func NewHandler(store SessionStore, credStore auth.CredentialStore, serverAddr string, signinProvider string, listAgents func() []*a2a.AgentCard) *Handler {
+	if signinProvider == "" {
+		signinProvider = "google"
+	}
 	return &Handler{
-		store:      store,
-		credStore:  credStore,
-		serverAddr: serverAddr,
-		listAgents: listAgents,
+		store:          store,
+		credStore:      credStore,
+		serverAddr:     serverAddr,
+		signinProvider: signinProvider,
+		listAgents:     listAgents,
 	}
 }
 
-// RegisterRoutes mounts OIDC login and status endpoints onto the provided ServeMux.
+// RegisterRoutes mounts login and status endpoints onto the provided ServeMux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login", h.HandleLogin)
 	mux.HandleFunc("GET /status", h.HandleStatus)
@@ -64,17 +69,10 @@ func (h *Handler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionID := cookie.Value
-	idToken, err := h.store.GetIDToken(r.Context(), sessionID)
-	if err != nil || idToken == "" {
+	sess, err := h.store.GetSession(r.Context(), sessionID)
+	if err != nil || sess == nil || sess.UserID == "" {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
-	}
-	email := ""
-	if payload, err := idtoken.ParsePayload(idToken); err == nil {
-		email, _ = payload.Claims["email"].(string)
-	}
-	if email == "" {
-		email = "testuser@example.com"
 	}
 
 	type ProviderStatus struct {
@@ -84,11 +82,15 @@ func (h *Handler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	var statuses []ProviderStatus
 	for _, p := range registry.ListProviders() {
-		_, err := h.credStore.GetCredential(r.Context(), email, p.Name)
+		var hasCred bool
+		if h.credStore != nil {
+			_, err := h.credStore.GetCredential(r.Context(), sess.UserID, p.Name)
+			hasCred = (err == nil)
+		}
 		statuses = append(statuses, ProviderStatus{
 			Name:    p.Name,
 			Type:    p.Type,
-			Enabled: err == nil,
+			Enabled: hasCred,
 		})
 	}
 
@@ -103,21 +105,25 @@ func (h *Handler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 
 	ui.Render(w, "status.html", map[string]any{
 		"PageTitle": "a2a-server // session dashboard",
-		"Email":     email,
+		"UserID":    sess.UserID,
+		"Email":     sess.UserID,
 		"SessionID": sessionID,
+		"Provider":  sess.Provider,
 		"Providers": statuses,
 		"Agents":    agents,
 	})
 }
 
-// HandleLogin processes direct Google OIDC login and state callbacks.
+// HandleLogin processes direct user login and OAuth state callbacks.
 func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
-	providerName := "google"
-	provider, ok := registry.GetProvider(providerName)
+	providerName := h.signinProvider
+	signinProv, ok := providers.GetSigninProvider(providerName)
 	if !ok {
-		http.Error(w, fmt.Sprintf("Default provider '%s' not registered", providerName), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Signin provider '%s' not registered", providerName), http.StatusInternalServerError)
 		return
 	}
+
+	regProv, _ := registry.GetProvider(providerName)
 
 	clientIDKey := fmt.Sprintf("oauth.%s.client_id", providerName)
 	clientSecretKey := fmt.Sprintf("oauth.%s.client_secret", providerName)
@@ -125,27 +131,24 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	clientSecret := viper.GetString(clientSecretKey)
 
 	if clientID == "" {
-		clientID = viper.GetString("oauth.client_id")
+		clientID = regProv.ClientID
 	}
 	if clientSecret == "" {
-		clientSecret = viper.GetString("oauth.client_secret")
+		clientSecret = regProv.ClientSecret
 	}
 
 	if clientID == "" || clientSecret == "" {
-		http.Error(w, "OAuth credentials not configured", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("OAuth credentials not configured for '%s'", providerName), http.StatusInternalServerError)
 		return
 	}
 
-	provider.ClientID = clientID
-	provider.ClientSecret = clientSecret
 	redirectURL := fmt.Sprintf("%s/login", h.serverAddr)
-
 	config := &oauth2.Config{
-		ClientID:     provider.ClientID,
-		ClientSecret: provider.ClientSecret,
-		Endpoint:     provider.Endpoint,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Endpoint:     signinProv.Endpoint(),
 		RedirectURL:  redirectURL,
-		Scopes:       []string{"openid", "email", "profile"},
+		Scopes:       signinProv.DefaultScopes(),
 	}
 
 	query := r.URL.Query()
@@ -156,26 +159,43 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		idToken, _ := tok.Extra("id_token").(string)
-		if idToken == "" {
-			http.Error(w, "No ID token returned by provider", http.StatusInternalServerError)
+		userID, err := signinProv.UserID(r.Context(), tok)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to resolve user ID: %v", err), http.StatusBadRequest)
 			return
-		}
-
-		// Decode email from the ID Token
-		email := ""
-		payload, err := idtoken.ParsePayload(idToken)
-		if err == nil {
-			email, _ = payload.Claims["email"].(string)
 		}
 
 		// Generate secure session ID
 		sessionID := uuid.NewString()
 
 		// Save session mapping to session Store
-		if err := h.store.SetIDToken(r.Context(), sessionID, idToken); err != nil {
+		sess := &SessionData{
+			ID:        sessionID,
+			UserID:    userID,
+			Provider:  providerName,
+			Token:     tok,
+			CreatedAt: time.Now(),
+			ExpiresAt: tok.Expiry,
+		}
+		if err := h.store.SetSession(r.Context(), sess); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to create session: %v", err), http.StatusInternalServerError)
 			return
+		}
+
+		// Persist delegated credential in CredentialStore
+		if h.credStore != nil {
+			tokBytes, err := json.Marshal(tok)
+			if err == nil {
+				_ = h.credStore.SetCredential(r.Context(), userID, providerName, tokBytes)
+			}
+		}
+
+		maxAge := 86400 * 30 // default 30 days
+		if !tok.Expiry.IsZero() {
+			diff := int(time.Until(tok.Expiry).Seconds())
+			if diff > 0 {
+				maxAge = diff
+			}
 		}
 
 		// Set session cookie
@@ -184,10 +204,9 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 			Value:    sessionID,
 			Path:     "/",
 			HttpOnly: true,
-			// If serving over http, un-set secure (e.g. for localhost use)
-			Secure:   h.serverAddr[0:5] == "http:",
+			Secure:   strings.HasPrefix(h.serverAddr, "https:"),
 			SameSite: http.SameSiteLaxMode,
-			MaxAge:   int(time.Until(tok.Expiry).Seconds()),
+			MaxAge:   maxAge,
 		})
 
 		if !strings.Contains(r.Header.Get("Accept"), "application/json") {
@@ -197,7 +216,7 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
-			"email":   email,
+			"user_id": userID,
 			"status":  "logged_in",
 			"session": sessionID,
 		})

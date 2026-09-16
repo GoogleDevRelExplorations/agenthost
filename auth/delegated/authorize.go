@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
+	"github.com/GoogleDevRelExplorations/agenthost/auth/providers"
 	"github.com/GoogleDevRelExplorations/agenthost/auth/registry"
 	"github.com/GoogleDevRelExplorations/agenthost/auth/ui"
 	"github.com/spf13/viper"
@@ -28,11 +29,14 @@ import (
 	"google.golang.org/api/idtoken"
 )
 
-func getUserEmail(r *http.Request) string {
+func getUserID(r *http.Request) string {
+	if p, ok := auth.DelegatedAuthProviderFrom(r.Context()); ok && p.UserID() != "" {
+		return p.UserID()
+	}
 	authHeader := r.Header.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		idToken := strings.TrimPrefix(authHeader, "Bearer ")
-		if payload, err := idtoken.ParsePayload(idToken); err == nil {
+	if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+		tokenStr := strings.TrimSpace(authHeader[7:])
+		if payload, err := idtoken.ParsePayload(tokenStr); err == nil {
 			if email, ok := payload.Claims["email"].(string); ok && email != "" {
 				return email
 			}
@@ -105,13 +109,15 @@ func (h *Handler) HandleAuthorizeGET(w http.ResponseWriter, r *http.Request) {
 		clientSecret = viper.GetString("oauth.client_secret")
 	}
 
+	if clientID == "" {
+		clientID = provider.ClientID
+	}
+	if clientSecret == "" {
+		clientSecret = provider.ClientSecret
+	}
+
 	if clientID == "" || clientSecret == "" {
-		ui.Render(w, "error.html", map[string]any{
-			"PageTitle":    "a2a-server // configuration error",
-			"ErrorMessage": fmt.Sprintf("OAuth credentials for '%s' are not configured. Please set them in your config under 'oauth.%s.client_id' and 'oauth.%s.client_secret'.", providerName, providerName, providerName),
-			"Scopes":       provider.Scopes,
-			"ProviderName": providerName,
-		})
+		http.Error(w, fmt.Sprintf("OAuth credentials not configured for '%s'", providerName), http.StatusInternalServerError)
 		return
 	}
 
@@ -144,23 +150,21 @@ func (h *Handler) HandleAuthorizeGET(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		idToken, _ := tok.Extra("id_token").(string)
-		email := ""
-		if idToken != "" {
-			payload, err := idtoken.ParsePayload(idToken)
-			if err == nil {
-				email, _ = payload.Claims["email"].(string)
+		userID := ""
+		if p, ok := auth.DelegatedAuthProviderFrom(r.Context()); ok && p.UserID() != "" {
+			userID = p.UserID()
+		} else if signinProv, ok := providers.GetSigninProvider(providerName); ok {
+			userID, _ = signinProv.UserID(r.Context(), tok)
+		}
+		if userID == "" {
+			if idToken, _ := tok.Extra("id_token").(string); idToken != "" {
+				if payload, err := idtoken.ParsePayload(idToken); err == nil {
+					userID, _ = payload.Claims["email"].(string)
+				}
 			}
 		}
-
-		if email == "" {
-			ui.Render(w, "error.html", map[string]any{
-				"PageTitle":    "a2a-server // id token error",
-				"ErrorMessage": "Failed to retrieve user email from ID token. Please ensure 'openid' and 'email' scopes are authorized.",
-				"Scopes":       provider.Scopes,
-				"ProviderName": providerName,
-			})
-			return
+		if userID == "" {
+			userID = getUserID(r)
 		}
 
 		credBytes, err := json.Marshal(tok)
@@ -174,7 +178,7 @@ func (h *Handler) HandleAuthorizeGET(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := h.store.SetCredential(r.Context(), email, providerName, credBytes); err != nil {
+		if err := h.store.SetCredential(r.Context(), userID, providerName, credBytes); err != nil {
 			ui.Render(w, "error.html", map[string]any{
 				"PageTitle":    "a2a-server // storage error",
 				"ErrorMessage": fmt.Sprintf("Failed to save credentials: %v", err),
@@ -241,8 +245,8 @@ func (h *Handler) HandleAuthorizePOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		email := getUserEmail(r)
-		if err := h.store.SetCredential(r.Context(), email, providerName, []byte(apiKey)); err != nil {
+		userID := getUserID(r)
+		if err := h.store.SetCredential(r.Context(), userID, providerName, []byte(apiKey)); err != nil {
 			ui.Render(w, "error.html", map[string]any{
 				"PageTitle":    "a2a-server // storage error",
 				"ErrorMessage": fmt.Sprintf("Failed to save API key: %v", err),
@@ -284,8 +288,6 @@ func (h *Handler) HandleAuthorizePOST(w http.ResponseWriter, r *http.Request) {
 
 	provider.ClientID = clientID
 	provider.ClientSecret = clientSecret
-
-	// Form already parsed above
 
 	scopes := r.PostForm["scopes"]
 	if len(scopes) == 0 {

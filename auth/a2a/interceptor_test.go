@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
+	authsession "github.com/GoogleDevRelExplorations/agenthost/auth/session"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"google.golang.org/api/idtoken"
 )
@@ -34,6 +35,76 @@ func mockValidator(ctx context.Context, token string, audience string) (*idtoken
 		}, nil
 	}
 	return nil, fmt.Errorf("invalid token: %s", token)
+}
+
+func TestA2AInterceptor_SessionID(t *testing.T) {
+	credStore := auth.NewInMemoryStore()
+	sessionStore := authsession.NewInMemoryStore()
+	_ = sessionStore.SetSession(context.Background(), &auth.SessionData{
+		ID:     "sess-456",
+		UserID: "octocat",
+	})
+	interceptor := &AuthInterceptor{
+		Store:        credStore,
+		SessionStore: sessionStore,
+	}
+
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer sess-456")
+	serviceParams := a2asrv.NewServiceParams(headers)
+
+	_, callCtx := a2asrv.NewCallContext(context.Background(), serviceParams)
+
+	ctx, _, err := interceptor.Before(context.Background(), callCtx, nil)
+	if err != nil {
+		t.Fatalf("Interceptor Before returned error: %v", err)
+	}
+
+	if callCtx.User == nil || !callCtx.User.Authenticated || callCtx.User.Name != "octocat" {
+		t.Errorf("Expected authenticated user octocat, got: %+v", callCtx.User)
+	}
+
+	provider, ok := auth.DelegatedAuthProviderFrom(ctx)
+	if !ok || provider == nil {
+		t.Errorf("Expected DelegatedAuthProvider in context")
+	} else if provider.UserID() != "octocat" {
+		t.Errorf("Expected provider UserID octocat, got %s", provider.UserID())
+	}
+}
+
+func TestA2AInterceptor_LegacySessionScheme(t *testing.T) {
+	credStore := auth.NewInMemoryStore()
+	sessionStore := authsession.NewInMemoryStore()
+	_ = sessionStore.SetSession(context.Background(), &auth.SessionData{
+		ID:     "sess-legacy-789",
+		UserID: "octocat",
+	})
+	interceptor := &AuthInterceptor{
+		Store:        credStore,
+		SessionStore: sessionStore,
+	}
+
+	headers := http.Header{}
+	headers.Set("Authorization", "session sess-legacy-789")
+	serviceParams := a2asrv.NewServiceParams(headers)
+
+	_, callCtx := a2asrv.NewCallContext(context.Background(), serviceParams)
+
+	ctx, _, err := interceptor.Before(context.Background(), callCtx, nil)
+	if err != nil {
+		t.Fatalf("Interceptor Before returned error: %v", err)
+	}
+
+	if callCtx.User == nil || !callCtx.User.Authenticated || callCtx.User.Name != "octocat" {
+		t.Errorf("Expected authenticated user octocat, got: %+v", callCtx.User)
+	}
+
+	provider, ok := auth.DelegatedAuthProviderFrom(ctx)
+	if !ok || provider == nil {
+		t.Errorf("Expected DelegatedAuthProvider in context")
+	} else if provider.UserID() != "octocat" {
+		t.Errorf("Expected provider UserID octocat, got %s", provider.UserID())
+	}
 }
 
 func TestA2AInterceptor_Authenticated(t *testing.T) {
@@ -69,7 +140,8 @@ func TestA2AInterceptor_Authenticated(t *testing.T) {
 
 func TestA2AInterceptor_Unauthenticated(t *testing.T) {
 	credStore := auth.NewInMemoryStore()
-	interceptor := NewAuthInterceptor(credStore)
+	sessionStore := authsession.NewInMemoryStore()
+	interceptor := NewAuthInterceptor(credStore, sessionStore)
 
 	_, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(http.Header{}))
 

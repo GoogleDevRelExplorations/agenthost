@@ -169,22 +169,22 @@ func resolveProjectID() string {
 }
 
 // SecretID derives the Secret Manager secret ID using: prefix + "-" + user-hash + "-" + provider.
-func (s *Store) SecretID(email string, provider string) string {
-	normalizedEmail := strings.ToLower(strings.TrimSpace(email))
-	userHash := fmt.Sprintf("%x", sha256.Sum256([]byte(normalizedEmail)))
+func (s *Store) SecretID(userID string, provider string) string {
+	normalizedUser := strings.ToLower(strings.TrimSpace(userID))
+	userHash := fmt.Sprintf("%x", sha256.Sum256([]byte(normalizedUser)))
 	normalizedProvider := strings.ToLower(strings.TrimSpace(provider))
 	normalizedProvider = labelSanitizer.ReplaceAllString(normalizedProvider, "_")
 
 	return fmt.Sprintf("%s-%s-%s", s.prefix, userHash, normalizedProvider)
 }
 
-func (s *Store) cacheKey(email string, provider string) string {
-	return strings.ToLower(strings.TrimSpace(email)) + ":" + strings.ToLower(strings.TrimSpace(provider))
+func (s *Store) cacheKey(userID string, provider string) string {
+	return strings.ToLower(strings.TrimSpace(userID)) + ":" + strings.ToLower(strings.TrimSpace(provider))
 }
 
-func (s *Store) labels(email string, provider string) map[string]string {
-	normalizedEmail := strings.ToLower(strings.TrimSpace(email))
-	userHash := fmt.Sprintf("%x", sha256.Sum256([]byte(normalizedEmail)))
+func (s *Store) labels(userID string, provider string) map[string]string {
+	normalizedUser := strings.ToLower(strings.TrimSpace(userID))
+	userHash := fmt.Sprintf("%x", sha256.Sum256([]byte(normalizedUser)))
 	if len(userHash) > 63 {
 		userHash = userHash[:63]
 	}
@@ -202,15 +202,15 @@ func (s *Store) labels(email string, provider string) map[string]string {
 	}
 }
 
-func (s *Store) annotations(email string) map[string]string {
+func (s *Store) annotations(userID string) map[string]string {
 	return map[string]string{
-		"user-email": strings.TrimSpace(email),
+		"user-id": strings.TrimSpace(userID),
 	}
 }
 
 // GetCredential retrieves a credential from Google Secret Manager.
-func (s *Store) GetCredential(ctx context.Context, email string, provider string) ([]byte, error) {
-	ck := s.cacheKey(email, provider)
+func (s *Store) GetCredential(ctx context.Context, userID string, provider string) ([]byte, error) {
+	ck := s.cacheKey(userID, provider)
 
 	if s.cacheEnabled {
 		s.cacheMu.RLock()
@@ -224,7 +224,7 @@ func (s *Store) GetCredential(ctx context.Context, email string, provider string
 		s.cacheMu.RUnlock()
 	}
 
-	secretID := s.SecretID(email, provider)
+	secretID := s.SecretID(userID, provider)
 	versionName := fmt.Sprintf("projects/%s/secrets/%s/versions/latest", s.projectID, secretID)
 
 	resp, err := s.client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
@@ -232,7 +232,7 @@ func (s *Store) GetCredential(ctx context.Context, email string, provider string
 	})
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
-			notFoundErr := fmt.Errorf("credential not found for provider %s and user %s", provider, email)
+			notFoundErr := fmt.Errorf("credential not found for provider %s and user %s", provider, userID)
 			if s.cacheEnabled {
 				s.cacheMu.Lock()
 				s.cache[ck] = cacheEntry{
@@ -261,8 +261,8 @@ func (s *Store) GetCredential(ctx context.Context, email string, provider string
 }
 
 // SetCredential stores a credential in Google Secret Manager, creating the secret if it doesn't exist.
-func (s *Store) SetCredential(ctx context.Context, email string, provider string, cred []byte) error {
-	secretID := s.SecretID(email, provider)
+func (s *Store) SetCredential(ctx context.Context, userID string, provider string, cred []byte) error {
+	secretID := s.SecretID(userID, provider)
 	secretName := fmt.Sprintf("projects/%s/secrets/%s", s.projectID, secretID)
 
 	// Check if secret already exists
@@ -277,8 +277,8 @@ func (s *Store) SetCredential(ctx context.Context, email string, provider string
 				SecretId: secretID,
 				Secret: &secretmanagerpb.Secret{
 					Replication: s.replication,
-					Labels:      s.labels(email, provider),
-					Annotations: s.annotations(email),
+					Labels:      s.labels(userID, provider),
+					Annotations: s.annotations(userID),
 				},
 			})
 			if createErr != nil && status.Code(createErr) != codes.AlreadyExists {
@@ -302,7 +302,7 @@ func (s *Store) SetCredential(ctx context.Context, email string, provider string
 
 	// Update in-memory cache
 	if s.cacheEnabled {
-		ck := s.cacheKey(email, provider)
+		ck := s.cacheKey(userID, provider)
 		s.cacheMu.Lock()
 		s.cache[ck] = cacheEntry{
 			value:     cred,
@@ -315,8 +315,8 @@ func (s *Store) SetCredential(ctx context.Context, email string, provider string
 }
 
 // DelegatedProvider returns a user-scoped DelegatedAuthProvider backed by this store.
-func (s *Store) DelegatedProvider(ctx context.Context, email string) *auth.DelegatedAuthProvider {
-	return auth.NewDelegatedAuthProvider(s, email)
+func (s *Store) DelegatedProvider(ctx context.Context, userID string) *auth.DelegatedAuthProvider {
+	return auth.NewDelegatedAuthProvider(s, userID)
 }
 
 // Close releases resources held by the store, closing the client connection if owned.
