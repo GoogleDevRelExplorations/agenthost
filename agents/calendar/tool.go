@@ -21,8 +21,9 @@ import (
 
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/functiontool"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
 	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/option"
 )
@@ -56,7 +57,7 @@ func NewReadCalendarTool() (tool.Tool, error) {
 			Name:        "read_calendar",
 			Description: "Retrieves scheduled meetings from the user's primary Google Calendar for a specific date or defaults to today.",
 		},
-		func(ctx tool.Context, args ReadCalendarArgs) (ReadCalendarResult, error) {
+		func(ctx agent.Context, args ReadCalendarArgs) (ReadCalendarResult, error) {
 			return readCalendarHandler(ctx, args)
 		},
 	)

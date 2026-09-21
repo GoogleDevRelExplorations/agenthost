@@ -1,6 +1,6 @@
 module github.com/GoogleDevRelExplorations/agenthost
 
-go 1.26.3
+go 1.26.6
 
 require (
 	cloud.google.com/go/secretmanager v1.21.0
@@ -10,7 +10,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/spf13/viper v1.21.0
 	golang.org/x/oauth2 v0.37.0
-	google.golang.org/adk v1.6.1
+	google.golang.org/adk/v2 v2.4.0
 	google.golang.org/api v0.297.0
 	google.golang.org/genai v1.71.0
 	google.golang.org/grpc v1.83.2
@@ -47,7 +47,7 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.71.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0 // indirect
 	go.opentelemetry.io/otel v1.46.0 // indirect
-	go.opentelemetry.io/otel/log v0.19.0 // indirect
+	go.opentelemetry.io/otel/log v0.22.0 // indirect
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
