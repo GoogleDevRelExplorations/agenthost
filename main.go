@@ -25,19 +25,20 @@ import (
 	"github.com/GoogleDevRelExplorations/agenthost/a2ahost"
 	"github.com/GoogleDevRelExplorations/agenthost/agents/calendar"
 	"github.com/GoogleDevRelExplorations/agenthost/agents/example"
-	"github.com/GoogleDevRelExplorations/agenthost/auth/credentialstore/googlesecretmanager"
+	"github.com/GoogleDevRelExplorations/agenthost/auth"
 	"github.com/GoogleDevRelExplorations/agenthost/auth/delegated"
+	authhttp "github.com/GoogleDevRelExplorations/agenthost/auth/http"
 	_ "github.com/GoogleDevRelExplorations/agenthost/auth/providers/buffer"
 	_ "github.com/GoogleDevRelExplorations/agenthost/auth/providers/github"
 	_ "github.com/GoogleDevRelExplorations/agenthost/auth/providers/google"
-	authhttp "github.com/GoogleDevRelExplorations/agenthost/auth/http"
 	authsession "github.com/GoogleDevRelExplorations/agenthost/auth/session"
 	"github.com/spf13/viper"
 )
 
 var (
-	port    = flag.Int("port", 9001, "Port for the HTTP server to listen on.")
-	baseURL = flag.String("baseurl", "", "Base URL for the server (e.g. http://localhost:9001). If empty, defaults to http://localhost:<port>")
+	port           = flag.Int("port", 9001, "Port for the HTTP server to listen on.")
+	baseURL        = flag.String("baseurl", "", "Base URL for the server (e.g. http://localhost:9001). If empty, defaults to http://localhost:<port>")
+	signinProvider = flag.String("signin-provider", "google", "Default OAuth provider for sign-in (e.g. google, github).")
 )
 
 func main() {
@@ -57,8 +58,8 @@ func main() {
 	ctx := context.Background()
 
 	// Instantiate the in-memory token store
-	// tokenStore := auth.NewInMemoryStore()
-	tokenStore, _ := googlesecretmanager.New(context.Background())
+	tokenStore := auth.NewInMemoryStore()
+	// tokenStore, _ := googlesecretmanager.New(context.Background())
 
 	// 1. Create the ADK agents
 	exampleAgent, err := example.NewExampleAgent(ctx)
@@ -75,19 +76,22 @@ func main() {
 		rdraddr = fmt.Sprintf("http://localhost:%d", *port)
 	}
 
-	// 2. Set up HTTP Mux and Host wrapper
+	// 2. Set up HTTP Mux, session store, and Host wrapper
 	mux := http.NewServeMux()
-	host := a2ahost.NewHost(mux, rdraddr, tokenStore)
+	sessionStore := authsession.NewInMemoryStore()
+	host := a2ahost.NewHost(mux, rdraddr, tokenStore, sessionStore)
 
 	// Mount agents
 	host.RegisterAgent("/", exampleAgent)
 	host.RegisterAgent("/agents/calendar", calendarAgent)
 
-	// Instantiate the in-memory session store
-	sessionStore := authsession.NewInMemoryStore()
+	provider := *signinProvider
+	if p := viper.GetString("auth.signin_provider"); p != "" {
+		provider = p
+	}
 
 	// Mount Login (BFF Session) handler
-	loginHandler := authsession.NewHandler(sessionStore, tokenStore, rdraddr, host.ListAgents)
+	loginHandler := authsession.NewHandler(sessionStore, tokenStore, rdraddr, provider, host.ListAgents)
 	loginHandler.RegisterRoutes(mux)
 
 	// Mount Delegated Scope Authorization handler
@@ -112,7 +116,7 @@ func main() {
 		log.Fatalf("Failed to bind to port: %v", err)
 	}
 
-	log.Printf("Starting A2A server on %s", rdraddr)
+	log.Printf("Starting A2A server on %s (signin provider: %s)", rdraddr, provider)
 	log.Printf("Health check available at %s/health", rdraddr)
 
 	if err := http.Serve(listener, handler); err != nil {

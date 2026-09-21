@@ -58,7 +58,7 @@ func (rt *AuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 func NewClient(provider string) (*http.Client, error) {
 	_, ok := registry.GetProvider(provider)
 	if !ok {
-		return nil, fmt.Errorf("unknown auth provider: %s", provider)
+		return nil, fmt.Errorf("missing auth: %w", AuthRequiredError{provider: provider})
 	}
 	return &http.Client{
 		Transport: &AuthRoundTripper{

@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
-// distributed under/the License is distributed on an "AS IS" BASIS,
+// distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
@@ -19,15 +19,35 @@ import (
 	"fmt"
 	"maps"
 	"sync"
+	"time"
 
 	"github.com/GoogleDevRelExplorations/agenthost/auth/registry"
+	"golang.org/x/oauth2"
 )
+
+// SessionData holds session state including the authenticated user ID and OAuth tokens.
+type SessionData struct {
+	ID        string        `json:"id"`
+	UserID    string        `json:"user_id"`
+	Provider  string        `json:"provider"`
+	Token     *oauth2.Token `json:"token,omitempty"`
+	CreatedAt time.Time     `json:"created_at"`
+	ExpiresAt time.Time     `json:"expires_at"`
+}
+
+// SessionStore defines the interface for storing and retrieving user sessions.
+type SessionStore interface {
+	GetSession(ctx context.Context, sessionID string) (*SessionData, error)
+	SetSession(ctx context.Context, session *SessionData) error
+	DeleteSession(ctx context.Context, sessionID string) error
+	GetUserID(ctx context.Context, sessionID string) (string, error)
+}
 
 // CredentialStore defines the interface for storing and retrieving opaque credentials.
 type CredentialStore interface {
-	GetCredential(ctx context.Context, email string, provider string) ([]byte, error)
-	SetCredential(ctx context.Context, email string, provider string, cred []byte) error
-	DelegatedProvider(ctx context.Context, email string) *DelegatedAuthProvider
+	GetCredential(ctx context.Context, userID string, provider string) ([]byte, error)
+	SetCredential(ctx context.Context, userID string, provider string, cred []byte) error
+	DelegatedProvider(ctx context.Context, userID string) *DelegatedAuthProvider
 }
 
 // InMemoryStore is an in-memory implementation of CredentialStore.
@@ -44,60 +64,60 @@ func NewInMemoryStore() *InMemoryStore {
 }
 
 // GetCredential retrieves a credential from memory.
-func (s *InMemoryStore) GetCredential(ctx context.Context, email string, provider string) ([]byte, error) {
+func (s *InMemoryStore) GetCredential(ctx context.Context, userID string, provider string) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	userCreds, ok := s.credentials[email]
+	userCreds, ok := s.credentials[userID]
 	if !ok {
-		return nil, fmt.Errorf("no credentials found for user: %s", email)
+		return nil, fmt.Errorf("no credentials found for user: %s", userID)
 	}
 	cred, ok := userCreds[provider]
 	if !ok {
-		return nil, fmt.Errorf("credential not found for provider %s and user %s", provider, email)
+		return nil, fmt.Errorf("credential not found for provider %s and user %s", provider, userID)
 	}
 	return cred, nil
 }
 
 // SetCredential stores a credential in memory.
-func (s *InMemoryStore) SetCredential(ctx context.Context, email string, provider string, cred []byte) error {
+func (s *InMemoryStore) SetCredential(ctx context.Context, userID string, provider string, cred []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	userCreds, ok := s.credentials[email]
+	userCreds, ok := s.credentials[userID]
 	if !ok {
 		userCreds = make(map[string][]byte)
-		s.credentials[email] = userCreds
+		s.credentials[userID] = userCreds
 	}
 	userCreds[provider] = cred
 	return nil
 }
 
-// GetCredentials returns a copy of all credentials for a given user email.
-func (s *InMemoryStore) GetCredentials(ctx context.Context, email string) map[string][]byte {
+// GetCredentials returns a copy of all credentials for a given user.
+func (s *InMemoryStore) GetCredentials(ctx context.Context, userID string) map[string][]byte {
 	cmap := make(map[string][]byte)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if src, ok := s.credentials[email]; ok {
+	if src, ok := s.credentials[userID]; ok {
 		maps.Copy(cmap, src)
 	}
 	return cmap
 }
 
 // DelegatedProvider returns a user-scoped DelegatedAuthProvider.
-func (s *InMemoryStore) DelegatedProvider(ctx context.Context, email string) *DelegatedAuthProvider {
-	return NewDelegatedAuthProvider(s, email)
+func (s *InMemoryStore) DelegatedProvider(ctx context.Context, userID string) *DelegatedAuthProvider {
+	return NewDelegatedAuthProvider(s, userID)
 }
 
 // DelegatedAuthProvider provides access to delegated credentials scoped to the authenticated user.
 type DelegatedAuthProvider struct {
-	store CredentialStore
-	email string
+	store  CredentialStore
+	userID string
 }
 
-// NewDelegatedAuthProvider creates a new DelegatedAuthProvider scoped to a user email and backed by a CredentialStore.
-func NewDelegatedAuthProvider(store CredentialStore, email string) *DelegatedAuthProvider {
+// NewDelegatedAuthProvider creates a new DelegatedAuthProvider scoped to a user ID and backed by a CredentialStore.
+func NewDelegatedAuthProvider(store CredentialStore, userID string) *DelegatedAuthProvider {
 	return &DelegatedAuthProvider{
-		store: store,
-		email: email,
+		store:  store,
+		userID: userID,
 	}
 }
 
@@ -106,7 +126,7 @@ func (p *DelegatedAuthProvider) GetCredential(ctx context.Context, provider stri
 	if p == nil || p.store == nil {
 		return nil, fmt.Errorf("credential store not configured")
 	}
-	return p.store.GetCredential(ctx, p.email, provider)
+	return p.store.GetCredential(ctx, p.userID, provider)
 }
 
 // Providers returns the list of registered provider names that have delegated credentials or are registered.
@@ -118,12 +138,17 @@ func (p *DelegatedAuthProvider) Providers() []string {
 	return names
 }
 
-// Email returns the authenticated user's email.
-func (p *DelegatedAuthProvider) Email() string {
+// UserID returns the authenticated user's ID.
+func (p *DelegatedAuthProvider) UserID() string {
 	if p == nil {
 		return ""
 	}
-	return p.email
+	return p.userID
+}
+
+// Email returns the authenticated user's ID (alias for UserID for backward compatibility).
+func (p *DelegatedAuthProvider) Email() string {
+	return p.UserID()
 }
 
 type contextKey struct{}
@@ -139,4 +164,12 @@ func WithDelegatedAuthProvider(ctx context.Context, provider *DelegatedAuthProvi
 func DelegatedAuthProviderFrom(ctx context.Context) (*DelegatedAuthProvider, bool) {
 	p, ok := ctx.Value(providerContextKey).(*DelegatedAuthProvider)
 	return p, ok
+}
+
+type AuthRequiredError struct {
+	provider string
+}
+
+func (e AuthRequiredError) Error() string {
+	return fmt.Sprintf("Auth required. go to http://localhost:9001/authorize/%s to grant.", e.provider)
 }

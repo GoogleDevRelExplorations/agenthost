@@ -18,44 +18,45 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/GoogleDevRelExplorations/agenthost/auth"
 )
 
-// Store defines the interface for storing and retrieving user session ID tokens.
-type Store interface {
-	GetIDToken(ctx context.Context, sessionID string) (string, error)
-	SetIDToken(ctx context.Context, sessionID string, idToken string) error
-	DeleteSession(ctx context.Context, sessionID string) error
-}
+// SessionData aliases auth.SessionData.
+type SessionData = auth.SessionData
 
-// InMemoryStore is a thread-safe, in-memory implementation of Store.
+// SessionStore aliases auth.SessionStore.
+type SessionStore = auth.SessionStore
+
+// InMemoryStore is a thread-safe, in-memory implementation of SessionStore.
 type InMemoryStore struct {
 	mu       sync.RWMutex
-	sessions map[string]string
+	sessions map[string]*SessionData
 }
 
 // NewInMemoryStore creates a new InMemoryStore.
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
-		sessions: make(map[string]string),
+		sessions: make(map[string]*SessionData),
 	}
 }
 
-// GetIDToken retrieves the ID token associated with the sessionID.
-func (s *InMemoryStore) GetIDToken(ctx context.Context, sessionID string) (string, error) {
+// GetSession retrieves the SessionData associated with the sessionID.
+func (s *InMemoryStore) GetSession(ctx context.Context, sessionID string) (*SessionData, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	idToken, ok := s.sessions[sessionID]
+	sess, ok := s.sessions[sessionID]
 	if !ok {
-		return "", fmt.Errorf("session not found")
+		return nil, fmt.Errorf("session not found")
 	}
-	return idToken, nil
+	return sess, nil
 }
 
-// SetIDToken maps the sessionID to the given idToken.
-func (s *InMemoryStore) SetIDToken(ctx context.Context, sessionID string, idToken string) error {
+// SetSession maps the sessionID to the given SessionData.
+func (s *InMemoryStore) SetSession(ctx context.Context, sess *SessionData) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sessions[sessionID] = idToken
+	s.sessions[sess.ID] = sess
 	return nil
 }
 
@@ -66,3 +67,13 @@ func (s *InMemoryStore) DeleteSession(ctx context.Context, sessionID string) err
 	delete(s.sessions, sessionID)
 	return nil
 }
+
+// GetUserID returns the UserID associated with the given sessionID.
+func (s *InMemoryStore) GetUserID(ctx context.Context, sessionID string) (string, error) {
+	sess, err := s.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	return sess.UserID, nil
+}
+
