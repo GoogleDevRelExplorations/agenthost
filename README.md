@@ -18,7 +18,7 @@ that can safely be used by multiple users (or personal agents). Core principles:
 
 The framework uses the Agent-to-Agent protocol (A2A,
 [a2a-protocol.org](http://a2a-protocol.org) ), and [ADK
-Go](http://google.golang.org/adk) for agent serving.
+Go](https://google.golang.org/adk/v2) for agent serving.
 
 > [!TIP]
 > Some AI models (e.g. Gemini) have a knowledge cutoff that predates the

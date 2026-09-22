@@ -17,15 +17,16 @@ package a2ahost
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
 	autha2a "github.com/GoogleDevRelExplorations/agenthost/auth/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/runner"
-	"google.golang.org/adk/server/adka2a/v2"
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/server/adka2a/v2"
+	"google.golang.org/adk/v2/session"
 )
 
 // Host manages the registration, routing, and Agent Card configuration for multiple A2A agents.
@@ -73,13 +74,34 @@ func BuildAgentCard(ag agent.Agent, baseAddr string) *a2a.AgentCard {
 	}
 }
 
-// RegisterAgent mounts an ADK agent onto the Mux at the given path prefix and configures its A2A execution handlers.
-func (h *Host) RegisterAgent(pathPrefix string, ag agent.Agent) {
-	baseAddr := fmt.Sprintf("%s%s", h.baseURL, pathPrefix)
-	if pathPrefix == "/" || pathPrefix == "" {
-		baseAddr = h.baseURL
+// AttachOption configures optional settings for mounting an agent via AttachA2A or RegisterAgent.
+type AttachOption func(*attachOptions)
+
+type attachOptions struct {
+	genAIPartConverter adka2a.GenAIPartConverter
+}
+
+// WithGenAIPartConverter configures a custom GenAIPartConverter for the A2A executor.
+func WithGenAIPartConverter(converter adka2a.GenAIPartConverter) AttachOption {
+	return func(o *attachOptions) {
+		o.genAIPartConverter = converter
 	}
-	card := BuildAgentCard(ag, baseAddr)
+}
+
+func (h *Host) AttachA2A(pathPrefix string, ag agent.Agent, card *a2a.AgentCard, opts ...AttachOption) error {
+	var o attachOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	agentprefix, err := url.JoinPath("/", pathPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to assemble agent url: %w", err)
+	}
+	cardprefix, err := url.JoinPath("/", pathPrefix, a2asrv.WellKnownAgentCardPath)
+	if err != nil {
+		return fmt.Errorf("failed to assemble card url: %w", err)
+	}
 	h.cards = append(h.cards, card)
 
 	executor := adka2a.NewExecutor(adka2a.ExecutorConfig{
@@ -88,6 +110,7 @@ func (h *Host) RegisterAgent(pathPrefix string, ag agent.Agent) {
 			Agent:          ag,
 			SessionService: session.InMemoryService(),
 		},
+		GenAIPartConverter: o.genAIPartConverter,
 	})
 
 	requestHandler := a2asrv.NewHandler(
@@ -97,14 +120,19 @@ func (h *Host) RegisterAgent(pathPrefix string, ag agent.Agent) {
 
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 
-	if pathPrefix == "/" || pathPrefix == "" {
-		h.mux.Handle("/", jsonrpcHandler)
-		h.mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(card))
-		return
-	}
+	h.mux.Handle(agentprefix, http.StripPrefix(pathPrefix, jsonrpcHandler))
+	h.mux.Handle(cardprefix, a2asrv.NewStaticAgentCardHandler(card))
+	return nil
+}
 
-	h.mux.Handle(pathPrefix+"/", http.StripPrefix(pathPrefix, jsonrpcHandler))
-	h.mux.Handle(pathPrefix+a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(card))
+// RegisterAgent mounts an ADK agent onto the Mux at the given path prefix and configures its A2A execution handlers.
+func (h *Host) RegisterAgent(pathPrefix string, ag agent.Agent, opts ...AttachOption) error {
+	baseAddr, err := url.JoinPath(h.baseURL, pathPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to assemble base url: %w", err)
+	}
+	card := BuildAgentCard(ag, baseAddr)
+	return h.AttachA2A(pathPrefix, ag, card, opts...)
 }
 
 // ListAgents returns a list of all registered Agent Cards.
