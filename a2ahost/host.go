@@ -74,7 +74,26 @@ func BuildAgentCard(ag agent.Agent, baseAddr string) *a2a.AgentCard {
 	}
 }
 
-func (h *Host) AttachA2A(pathPrefix string, ag agent.Agent, card *a2a.AgentCard) error {
+// AttachOption configures optional settings for mounting an agent via AttachA2A or RegisterAgent.
+type AttachOption func(*attachOptions)
+
+type attachOptions struct {
+	genAIPartConverter adka2a.GenAIPartConverter
+}
+
+// WithGenAIPartConverter configures a custom GenAIPartConverter for the A2A executor.
+func WithGenAIPartConverter(converter adka2a.GenAIPartConverter) AttachOption {
+	return func(o *attachOptions) {
+		o.genAIPartConverter = converter
+	}
+}
+
+func (h *Host) AttachA2A(pathPrefix string, ag agent.Agent, card *a2a.AgentCard, opts ...AttachOption) error {
+	var o attachOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	agentprefix, err := url.JoinPath("/", pathPrefix)
 	if err != nil {
 		return fmt.Errorf("failed to assemble agent url: %w", err)
@@ -91,6 +110,7 @@ func (h *Host) AttachA2A(pathPrefix string, ag agent.Agent, card *a2a.AgentCard)
 			Agent:          ag,
 			SessionService: session.InMemoryService(),
 		},
+		GenAIPartConverter: o.genAIPartConverter,
 	})
 
 	requestHandler := a2asrv.NewHandler(
@@ -106,14 +126,13 @@ func (h *Host) AttachA2A(pathPrefix string, ag agent.Agent, card *a2a.AgentCard)
 }
 
 // RegisterAgent mounts an ADK agent onto the Mux at the given path prefix and configures its A2A execution handlers.
-func (h *Host) RegisterAgent(pathPrefix string, ag agent.Agent) error {
+func (h *Host) RegisterAgent(pathPrefix string, ag agent.Agent, opts ...AttachOption) error {
 	baseAddr, err := url.JoinPath(h.baseURL, pathPrefix)
 	if err != nil {
 		return fmt.Errorf("failed to assemble base url: %w", err)
 	}
 	card := BuildAgentCard(ag, baseAddr)
-	return h.AttachA2A(pathPrefix, ag, card)
-
+	return h.AttachA2A(pathPrefix, ag, card, opts...)
 }
 
 // ListAgents returns a list of all registered Agent Cards.
