@@ -27,6 +27,7 @@ import (
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
+	"github.com/GoogleDevRelExplorations/agenthost/auth/audit"
 	"github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
@@ -67,6 +68,8 @@ type Config struct {
 	DisableCache     bool
 	Client           Client
 	ClientOptions    []option.ClientOption
+	AuditLogger      audit.Logger
+	StrictAudit      bool
 }
 
 // Store implements auth.CredentialStore using Google Cloud Secret Manager.
@@ -81,6 +84,9 @@ type Store struct {
 	cacheMu          sync.RWMutex
 	cache            map[string]cacheEntry
 	closeClientOnEnd bool
+	auditMu          sync.RWMutex
+	auditLogger      audit.Logger
+	strictAudit      bool
 }
 
 // New creates a new Store instance implementing auth.CredentialStore with Google Secret Manager.
@@ -152,6 +158,8 @@ func New(ctx context.Context, cfg ...*Config) (*Store, error) {
 		cacheEnabled:     !c.DisableCache,
 		cache:            make(map[string]cacheEntry),
 		closeClientOnEnd: closeClientOnEnd,
+		auditLogger:      c.AuditLogger,
+		strictAudit:      c.StrictAudit,
 	}, nil
 }
 
@@ -314,9 +322,35 @@ func (s *Store) SetCredential(ctx context.Context, userID string, provider strin
 	return nil
 }
 
+// SetAuditLogger configures the default audit logger for DelegatedAuthProviders created by this store.
+func (s *Store) SetAuditLogger(logger audit.Logger) {
+	s.auditMu.Lock()
+	defer s.auditMu.Unlock()
+	s.auditLogger = logger
+}
+
+// SetStrictAudit configures whether failed audit log writes fail credential retrieval.
+func (s *Store) SetStrictAudit(strict bool) {
+	s.auditMu.Lock()
+	defer s.auditMu.Unlock()
+	s.strictAudit = strict
+}
+
 // DelegatedProvider returns a user-scoped DelegatedAuthProvider backed by this store.
 func (s *Store) DelegatedProvider(ctx context.Context, userID string) *auth.DelegatedAuthProvider {
-	return auth.NewDelegatedAuthProvider(s, userID)
+	s.auditMu.RLock()
+	logger := s.auditLogger
+	strict := s.strictAudit
+	s.auditMu.RUnlock()
+
+	p := auth.NewDelegatedAuthProvider(s, userID)
+	if logger != nil {
+		p = p.WithAuditLogger(logger)
+	}
+	if strict {
+		p = p.WithStrictAudit(strict)
+	}
+	return p
 }
 
 // Close releases resources held by the store, closing the client connection if owned.
