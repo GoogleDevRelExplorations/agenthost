@@ -23,8 +23,6 @@ import (
 	"net/http"
 
 	"github.com/GoogleDevRelExplorations/agenthost/a2ahost"
-	"github.com/GoogleDevRelExplorations/agenthost/agents/calendar"
-	"github.com/GoogleDevRelExplorations/agenthost/agents/example"
 	"github.com/GoogleDevRelExplorations/agenthost/auth"
 	"github.com/GoogleDevRelExplorations/agenthost/auth/delegated"
 	authhttp "github.com/GoogleDevRelExplorations/agenthost/auth/http"
@@ -61,14 +59,10 @@ func main() {
 	tokenStore := auth.NewInMemoryStore()
 	// tokenStore, _ := googlesecretmanager.New(context.Background())
 
-	// 1. Create the ADK agents
-	exampleAgent, err := example.NewExampleAgent(ctx)
+	// Create agents
+	exampleAgent, err := NewExampleAgent(ctx)
 	if err != nil {
 		log.Fatalf("Failed to create example agent: %v", err)
-	}
-	calendarAgent, err := calendar.NewCalendarAgent(ctx)
-	if err != nil {
-		log.Fatalf("Failed to create calendar agent: %v", err)
 	}
 
 	rdraddr := *baseURL
@@ -76,14 +70,13 @@ func main() {
 		rdraddr = fmt.Sprintf("http://localhost:%d", *port)
 	}
 
-	// 2. Set up HTTP Mux, session store, and Host wrapper
+	// Set up HTTP Mux, session store, and Host wrapper
 	mux := http.NewServeMux()
 	sessionStore := authsession.NewInMemoryStore()
 	host := a2ahost.NewHost(mux, rdraddr, tokenStore, sessionStore)
 
 	// Mount agents
 	host.RegisterAgent("/", exampleAgent)
-	host.RegisterAgent("/agents/calendar", calendarAgent)
 
 	provider := *signinProvider
 	if p := viper.GetString("auth.signin_provider"); p != "" {
@@ -110,7 +103,7 @@ func main() {
 		CredentialStore: tokenStore,
 	})(mux)
 
-	// 5. Start HTTP server
+	// Start HTTP server
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
 		log.Fatalf("Failed to bind to port: %v", err)

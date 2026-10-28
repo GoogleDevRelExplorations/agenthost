@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/GoogleDevRelExplorations/agenthost/auth/audit"
 	"github.com/GoogleDevRelExplorations/agenthost/auth/registry"
 	"golang.org/x/oauth2"
 )
@@ -38,7 +39,15 @@ func (rt *AuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	if rt.AuthProvider == "" {
 		return nil, fmt.Errorf("auth provider must be specified")
 	}
-	tok, err := provider.GetCredential(req.Context(), rt.AuthProvider)
+
+	scopedProvider := provider.WithAudit(audit.Context{
+		Metadata: map[string]any{
+			"http.method": req.Method,
+			"http.url":    req.URL.String(),
+		},
+	})
+
+	tok, err := scopedProvider.GetCredential(req.Context(), rt.AuthProvider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get credential: %v", err)
 	}

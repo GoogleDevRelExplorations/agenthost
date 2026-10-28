@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/GoogleDevRelExplorations/agenthost/auth/audit"
 	"github.com/GoogleDevRelExplorations/agenthost/auth/registry"
 	"golang.org/x/oauth2"
 )
@@ -54,6 +55,8 @@ type CredentialStore interface {
 type InMemoryStore struct {
 	mu          sync.RWMutex
 	credentials map[string]map[string][]byte
+	auditLogger audit.Logger
+	strictAudit bool
 }
 
 // NewInMemoryStore creates a new InMemoryStore.
@@ -61,6 +64,20 @@ func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
 		credentials: make(map[string]map[string][]byte),
 	}
+}
+
+// SetAuditLogger configures the default audit logger for DelegatedAuthProviders created by this store.
+func (s *InMemoryStore) SetAuditLogger(logger audit.Logger) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.auditLogger = logger
+}
+
+// SetStrictAudit configures whether failed audit log writes fail credential retrieval.
+func (s *InMemoryStore) SetStrictAudit(strict bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.strictAudit = strict
 }
 
 // GetCredential retrieves a credential from memory.
@@ -104,21 +121,67 @@ func (s *InMemoryStore) GetCredentials(ctx context.Context, userID string) map[s
 
 // DelegatedProvider returns a user-scoped DelegatedAuthProvider.
 func (s *InMemoryStore) DelegatedProvider(ctx context.Context, userID string) *DelegatedAuthProvider {
-	return NewDelegatedAuthProvider(s, userID)
+	s.mu.RLock()
+	logger := s.auditLogger
+	strict := s.strictAudit
+	s.mu.RUnlock()
+
+	p := NewDelegatedAuthProvider(s, userID)
+	if logger != nil {
+		p = p.WithAuditLogger(logger)
+	}
+	if strict {
+		p = p.WithStrictAudit(strict)
+	}
+	return p
 }
 
 // DelegatedAuthProvider provides access to delegated credentials scoped to the authenticated user.
 type DelegatedAuthProvider struct {
-	store  CredentialStore
-	userID string
+	store       CredentialStore
+	userID      string
+	auditLogger audit.Logger
+	auditCtx    audit.Context
+	strictAudit bool
 }
 
 // NewDelegatedAuthProvider creates a new DelegatedAuthProvider scoped to a user ID and backed by a CredentialStore.
 func NewDelegatedAuthProvider(store CredentialStore, userID string) *DelegatedAuthProvider {
 	return &DelegatedAuthProvider{
-		store:  store,
-		userID: userID,
+		store:       store,
+		userID:      userID,
+		auditLogger: audit.DefaultLogger(),
 	}
+}
+
+// WithAudit returns a shallow copy of the provider with additional audit context merged in.
+func (p *DelegatedAuthProvider) WithAudit(ac audit.Context) *DelegatedAuthProvider {
+	cp := *p
+	cp.auditCtx = p.auditCtx.Merge(ac)
+	return &cp
+}
+
+// WithAuditInfo is a convenience helper for setting agent, tool, and parameters.
+func (p *DelegatedAuthProvider) WithAuditInfo(agent, tool string, params any) *DelegatedAuthProvider {
+	return p.WithAudit(audit.Context{
+		Agent:      agent,
+		Tool:       tool,
+		Parameters: params,
+	})
+}
+
+// WithAuditLogger returns a shallow copy of the provider configured with the given AuditLogger.
+func (p *DelegatedAuthProvider) WithAuditLogger(logger audit.Logger) *DelegatedAuthProvider {
+	cp := *p
+	cp.auditLogger = logger
+	return &cp
+}
+
+// WithStrictAudit returns a shallow copy of the provider configured with the given strict audit policy.
+func (p *DelegatedAuthProvider) WithStrictAudit(strict bool) *DelegatedAuthProvider {
+	cp := *p
+	cp.strictAudit = strict
+	return &cp
 }
 
 // GetCredential retrieves the delegated credential for the specified provider for the authenticated user.
@@ -126,7 +189,38 @@ func (p *DelegatedAuthProvider) GetCredential(ctx context.Context, provider stri
 	if p == nil || p.store == nil {
 		return nil, fmt.Errorf("credential store not configured")
 	}
-	return p.store.GetCredential(ctx, p.userID, provider)
+
+	cred, err := p.store.GetCredential(ctx, p.userID, provider)
+
+	logger := p.auditLogger
+	if logger == nil {
+		logger = audit.DefaultLogger()
+	}
+
+	if logger != nil {
+		entry := &audit.Entry{
+			Timestamp:  time.Now(),
+			UserID:     p.userID,
+			Provider:   provider,
+			Agent:      p.auditCtx.Agent,
+			Tool:       p.auditCtx.Tool,
+			Parameters: p.auditCtx.Parameters,
+			Action:     "token.access",
+			Success:    err == nil,
+			Metadata:   p.auditCtx.Metadata,
+		}
+		if err != nil {
+			entry.Error = err.Error()
+		}
+
+		if logErr := logger.LogAudit(ctx, entry); logErr != nil {
+			if p.strictAudit {
+				return nil, fmt.Errorf("audit logging failed: %w", logErr)
+			}
+		}
+	}
+
+	return cred, err
 }
 
 // Providers returns the list of registered provider names that have delegated credentials or are registered.
